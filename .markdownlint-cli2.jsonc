@@ -1,0 +1,63 @@
+// Configuration for markdownlint-cli2
+// This file is used by both pre-commit hooks and nvim
+// See: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+{
+  // markdownlint rules configuration
+  "config": {
+    // Default state for all rules
+    "default": true,
+
+    // MD013/line-length - Line length
+    // Disabled because it's too restrictive for documentation
+    "MD013": false,
+
+    // MD024/no-duplicate-heading - Multiple headings with the same content
+    // Allow duplicate headings in different sections
+    "MD024": {
+      "siblings_only": true
+    },
+
+    // MD033/no-inline-html - Inline HTML
+    // Allow inline HTML as it's sometimes necessary
+    "MD033": false,
+
+    // MD025/single-title - Multiple top-level headings
+    // Disabled to allow multiple H1s in documentation
+    "MD025": false,
+
+    // MD041/first-line-heading - First line in file should be a top-level heading
+    // Disabled to allow introductory text
+    "MD041": false,
+
+    // MD046/code-block-style - Code block style
+    // Prefer fenced code blocks with language specified
+    "MD046": {
+      "style": "fenced"
+    },
+    // MD049/emphasis-style - Emphasis style
+    // Allow any consistent style
+    "MD049": {
+      "style": "consistent"
+    },
+    // MD050/strong-style - Strong style
+    // Use asterisks for strong emphasis
+    "MD050": {
+      "style": "asterisk"
+    }
+  },
+  // Glob patterns to lint
+  "globs": [
+    "**/*.md"
+  ],
+  // Ignore files in common directories
+  "ignores": [
+    "node_modules/**",
+    ".venv/**",
+    "**/.venv/**",
+    ".pytest_cache/**",
+    "**/.git/**",
+    "_bmad/**",
+    "_bmad-output/**",
+    ".claude/**"
+  ]
+}
