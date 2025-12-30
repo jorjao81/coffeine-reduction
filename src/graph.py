@@ -25,6 +25,7 @@ def render_graph(daily_totals: list[tuple[str, int, int]]) -> None:
 
     # Clear any previous plot
     plt.clear_figure()
+    plt.plotsize(60, 15)
 
     # Create side-by-side bar chart
     plt.multiple_bar(formatted_dates, [caffeine_values, sugar_values], labels=["Caffeine (mg)", "Sugar (g)"])

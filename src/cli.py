@@ -11,8 +11,8 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-console = Console()
-err_console = Console(stderr=True)
+console = Console(width=60)
+err_console = Console(stderr=True, width=60)
 
 
 @app.command()
