@@ -1,4 +1,4 @@
-"""Status display logic for caffeine tracking."""
+"""Status display logic for caffeine and sugar tracking."""
 
 from __future__ import annotations
 
@@ -7,16 +7,18 @@ from datetime import datetime
 from src import data
 
 
-def get_status_data() -> tuple[list[tuple[str, str, int]], int]:
+def get_status_data() -> tuple[list[tuple[str, str, int, int]], int, int]:
     """
     Get today's status data.
 
     Returns:
-        Tuple of (entries, total) where entries is list of (timestamp, drink, mg)
+        Tuple of (entries, caffeine_total, sugar_total) where entries is list of
+        (timestamp, drink, caffeine_mg, sugar_g)
     """
     entries = data.get_today_entries()
-    total = sum(mg for _, _, mg in entries)  # Calculate from entries, avoid extra file read
-    return entries, total
+    caffeine_total = sum(mg for _, _, mg, _ in entries)
+    sugar_total = sum(sg for _, _, _, sg in entries)
+    return entries, caffeine_total, sugar_total
 
 
 def format_time(iso_timestamp: str) -> str:
@@ -38,59 +40,68 @@ def format_time(iso_timestamp: str) -> str:
     return iso_timestamp
 
 
-def get_yesterday_comparison() -> int | None:
+def get_yesterday_comparison() -> tuple[int, int] | None:
     """
     Get comparison between today and yesterday's total.
 
     Returns:
-        Difference (today - yesterday) or None if no yesterday data
+        Tuple of (caffeine_diff, sugar_diff) or None if no yesterday data
     """
     yesterday_entries = data.get_yesterday_entries()
     if not yesterday_entries:
         return None
 
-    today_total = data.get_today_total()
-    yesterday_total = sum(mg for _, _, mg in yesterday_entries)  # Calculate from cached entries
+    today_caffeine, today_sugar = data.get_today_total()
+    yesterday_caffeine = sum(mg for _, _, mg, _ in yesterday_entries)
+    yesterday_sugar = sum(sg for _, _, _, sg in yesterday_entries)
 
-    return today_total - yesterday_total
+    return today_caffeine - yesterday_caffeine, today_sugar - yesterday_sugar
 
 
-def get_same_time_comparison() -> int | None:
+def get_same_time_comparison() -> tuple[int, int] | None:
     """
     Get comparison between today and yesterday at the same time.
 
     Returns:
-        Difference (today - yesterday_by_time) or None if no yesterday data
+        Tuple of (caffeine_diff, sugar_diff) or None if no yesterday data
     """
     yesterday_entries = data.get_yesterday_entries()
     if not yesterday_entries:
         return None
 
     now = datetime.now()
-    today_total = data.get_today_total()
+    today_caffeine, today_sugar = data.get_today_total()
 
     # Calculate from cached entries instead of extra file read
     cutoff_time = f"{now.hour:02d}:{now.minute:02d}"
-    yesterday_by_time = sum(
-        mg for timestamp, _, mg in yesterday_entries if "T" in timestamp and timestamp.split("T")[1][:5] <= cutoff_time
+    yesterday_caffeine_by_time = sum(
+        mg
+        for timestamp, _, mg, _ in yesterday_entries
+        if "T" in timestamp and timestamp.split("T")[1][:5] <= cutoff_time
+    )
+    yesterday_sugar_by_time = sum(
+        sg
+        for timestamp, _, _, sg in yesterday_entries
+        if "T" in timestamp and timestamp.split("T")[1][:5] <= cutoff_time
     )
 
-    return today_total - yesterday_by_time
+    return today_caffeine - yesterday_caffeine_by_time, today_sugar - yesterday_sugar_by_time
 
 
-def format_comparison(diff: int) -> str:
+def format_comparison(diff: int, unit: str = "mg") -> str:
     """
     Format comparison difference with sign.
 
     Args:
         diff: The difference value (today - yesterday)
+        unit: Unit to append (default: "mg")
 
     Returns:
         Formatted string with sign (e.g., "+45mg", "-30mg", "0mg")
     """
     if diff > 0:
-        return f"+{diff}mg"
+        return f"+{diff}{unit}"
     elif diff < 0:
-        return f"{diff}mg"
+        return f"{diff}{unit}"
     else:
-        return "0mg"
+        return f"0{unit}"

@@ -12,8 +12,10 @@ DATA_DIR = Path("./data")
 DRINKS_FILE = DATA_DIR / "drinks.tsv"
 CONFIG_FILE = DATA_DIR / "config.toml"
 
-# TSV column count
-TSV_COLUMNS = 3
+# TSV column count (timestamp, drink, caffeine_mg, sugar_g)
+TSV_COLUMNS = 4
+# Minimum columns to parse (for backwards compatibility with old 3-column format)
+TSV_MIN_COLUMNS = 3
 
 # Default graph settings
 DEFAULT_GRAPH_DAYS = 14
@@ -24,7 +26,7 @@ def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def append_drink(timestamp: str, drink: str, caffeine_mg: int) -> None:
+def append_drink(timestamp: str, drink: str, caffeine_mg: int, sugar_g: int) -> None:
     """Append a drink entry to the TSV log. Creates file with header if needed."""
     ensure_data_dir()
 
@@ -33,17 +35,17 @@ def append_drink(timestamp: str, drink: str, caffeine_mg: int) -> None:
 
     with DRINKS_FILE.open("a") as f:
         if needs_header:
-            f.write("timestamp\tdrink\tcaffeine_mg\n")
-        f.write(f"{timestamp}\t{drink}\t{caffeine_mg}\n")
+            f.write("timestamp\tdrink\tcaffeine_mg\tsugar_g\n")
+        f.write(f"{timestamp}\t{drink}\t{caffeine_mg}\t{sugar_g}\n")
 
 
-def get_today_entries() -> list[tuple[str, str, int]]:
-    """Read all entries from today. Returns list of (timestamp, drink, mg)."""
+def get_today_entries() -> list[tuple[str, str, int, int]]:
+    """Read all entries from today. Returns list of (timestamp, drink, caffeine_mg, sugar_g)."""
     if not DRINKS_FILE.exists():
         return []
 
     today = datetime.now().date().isoformat()
-    entries: list[tuple[str, str, int]] = []
+    entries: list[tuple[str, str, int, int]] = []
 
     with DRINKS_FILE.open() as f:
         # Skip header line
@@ -53,20 +55,25 @@ def get_today_entries() -> list[tuple[str, str, int]]:
 
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) == TSV_COLUMNS and parts[0].startswith(today):
+            if len(parts) >= TSV_MIN_COLUMNS and parts[0].startswith(today):
                 try:
                     caffeine_mg = int(parts[2])
-                    entries.append((parts[0], parts[1], caffeine_mg))
+                    # Support old format (3 columns) and new format (4 columns)
+                    sugar_g = int(parts[3]) if len(parts) >= TSV_COLUMNS else 0
+                    entries.append((parts[0], parts[1], caffeine_mg, sugar_g))
                 except ValueError:
-                    # Skip corrupted rows with non-integer caffeine values
+                    # Skip corrupted rows with non-integer values
                     continue
 
     return entries
 
 
-def get_today_total() -> int:
-    """Calculate today's total caffeine intake."""
-    return sum(mg for _, _, mg in get_today_entries())
+def get_today_total() -> tuple[int, int]:
+    """Calculate today's total caffeine and sugar intake. Returns (caffeine_mg, sugar_g)."""
+    entries = get_today_entries()
+    caffeine = sum(mg for _, _, mg, _ in entries)
+    sugar = sum(sg for _, _, _, sg in entries)
+    return caffeine, sugar
 
 
 def get_yesterday_date() -> str:
@@ -75,13 +82,13 @@ def get_yesterday_date() -> str:
     return yesterday.isoformat()
 
 
-def get_yesterday_entries() -> list[tuple[str, str, int]]:
-    """Read all entries from yesterday. Returns list of (timestamp, drink, mg)."""
+def get_yesterday_entries() -> list[tuple[str, str, int, int]]:
+    """Read all entries from yesterday. Returns list of (timestamp, drink, caffeine_mg, sugar_g)."""
     if not DRINKS_FILE.exists():
         return []
 
     yesterday = get_yesterday_date()
-    entries: list[tuple[str, str, int]] = []
+    entries: list[tuple[str, str, int, int]] = []
 
     with DRINKS_FILE.open() as f:
         header = next(f, None)
@@ -90,42 +97,48 @@ def get_yesterday_entries() -> list[tuple[str, str, int]]:
 
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) == TSV_COLUMNS and parts[0].startswith(yesterday):
+            if len(parts) >= TSV_MIN_COLUMNS and parts[0].startswith(yesterday):
                 try:
                     caffeine_mg = int(parts[2])
-                    entries.append((parts[0], parts[1], caffeine_mg))
+                    sugar_g = int(parts[3]) if len(parts) >= TSV_COLUMNS else 0
+                    entries.append((parts[0], parts[1], caffeine_mg, sugar_g))
                 except ValueError:
                     continue
 
     return entries
 
 
-def get_yesterday_total() -> int:
-    """Calculate yesterday's total caffeine intake."""
-    return sum(mg for _, _, mg in get_yesterday_entries())
+def get_yesterday_total() -> tuple[int, int]:
+    """Calculate yesterday's total caffeine and sugar intake. Returns (caffeine_mg, sugar_g)."""
+    entries = get_yesterday_entries()
+    caffeine = sum(mg for _, _, mg, _ in entries)
+    sugar = sum(sg for _, _, _, sg in entries)
+    return caffeine, sugar
 
 
-def get_yesterday_total_by_time(hour: int, minute: int) -> int:
+def get_yesterday_total_by_time(hour: int, minute: int) -> tuple[int, int]:
     """
-    Calculate yesterday's caffeine total up to a specific time.
+    Calculate yesterday's caffeine and sugar total up to a specific time.
 
     Args:
         hour: Hour (0-23)
         minute: Minute (0-59)
 
     Returns:
-        Total caffeine consumed yesterday before or at the specified time
+        Tuple of (caffeine_mg, sugar_g) consumed yesterday before or at the specified time
     """
     cutoff_time = f"{hour:02d}:{minute:02d}"
-    total = 0
+    caffeine_total = 0
+    sugar_total = 0
 
-    for timestamp, _, mg in get_yesterday_entries():
+    for timestamp, _, mg, sg in get_yesterday_entries():
         if "T" in timestamp:
             time_part = timestamp.split("T")[1][:5]
             if time_part <= cutoff_time:
-                total += mg
+                caffeine_total += mg
+                sugar_total += sg
 
-    return total
+    return caffeine_total, sugar_total
 
 
 # ============================================================================
@@ -175,17 +188,17 @@ def get_graph_days() -> int:
 # ============================================================================
 
 
-def get_all_entries() -> list[tuple[str, str, int]]:
+def get_all_entries() -> list[tuple[str, str, int, int]]:
     """
     Read all entries from drinks.tsv.
 
     Returns:
-        List of (timestamp, drink, caffeine_mg) tuples.
+        List of (timestamp, drink, caffeine_mg, sugar_g) tuples.
     """
     if not DRINKS_FILE.exists():
         return []
 
-    entries: list[tuple[str, str, int]] = []
+    entries: list[tuple[str, str, int, int]] = []
     with DRINKS_FILE.open() as f:
         header = next(f, None)
         if header is None:
@@ -193,49 +206,52 @@ def get_all_entries() -> list[tuple[str, str, int]]:
 
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) == TSV_COLUMNS:
+            if len(parts) >= TSV_MIN_COLUMNS:
                 try:
                     caffeine_mg = int(parts[2])
-                    entries.append((parts[0], parts[1], caffeine_mg))
+                    sugar_g = int(parts[3]) if len(parts) >= TSV_COLUMNS else 0
+                    entries.append((parts[0], parts[1], caffeine_mg, sugar_g))
                 except ValueError:
                     continue
     return entries
 
 
-def get_daily_totals(days: int) -> list[tuple[str, int]]:
+def get_daily_totals(days: int) -> list[tuple[str, int, int]]:
     """
-    Get daily caffeine totals for the last N days.
+    Get daily caffeine and sugar totals for the last N days.
 
     Args:
         days: Number of days to include in the range.
 
     Returns:
-        List of (date_str, total_mg) sorted by date ascending.
+        List of (date_str, caffeine_mg, sugar_g) sorted by date ascending.
         Only includes days from the first day with data through today.
-        Days with no drinks logged show as 0mg.
+        Days with no drinks logged show as 0mg/0g.
     """
     # Build date range (oldest to newest)
     today = datetime.now().date()
     date_range = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
 
     # Aggregate by date
-    daily_sums: dict[str, int] = defaultdict(int)
-    for timestamp, _, mg in get_all_entries():
+    daily_caffeine: dict[str, int] = defaultdict(int)
+    daily_sugar: dict[str, int] = defaultdict(int)
+    for timestamp, _, mg, sg in get_all_entries():
         date_part = timestamp.split("T")[0] if "T" in timestamp else timestamp[:10]
-        daily_sums[date_part] += mg
+        daily_caffeine[date_part] += mg
+        daily_sugar[date_part] += sg
 
     # If no data at all, return empty
-    if not daily_sums:
+    if not daily_caffeine:
         return []
 
     # Build result with zeros for missing days
-    result: list[tuple[str, int]] = []
+    result: list[tuple[str, int, int]] = []
     for date in date_range:
-        result.append((date, daily_sums.get(date, 0)))
+        result.append((date, daily_caffeine.get(date, 0), daily_sugar.get(date, 0)))
 
     # Find first day with data and trim from there
     first_data_idx = None
-    for i, (_, mg) in enumerate(result):
+    for i, (_, mg, _) in enumerate(result):
         if mg > 0:
             first_data_idx = i
             break

@@ -12,8 +12,8 @@ __pycache__/
 uv.lock
 .python-version
 
-# Runtime data
-data/
+# Runtime data - we want to store it so we can edit from different devices
+# data/
 
 # Cache directories
 .pytest_cache/

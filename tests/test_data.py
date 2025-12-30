@@ -36,16 +36,16 @@ def test_append_drink_creates_file_with_header(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        append_drink("2025-12-27T08:00:00", "espresso", 63)
+        append_drink("2025-12-27T08:00:00", "baly", 60, 27)
 
         assert test_file.exists()
         content = test_file.read_text()
         lines = content.strip().split("\n")
 
         # Check header
-        assert lines[0] == "timestamp\tdrink\tcaffeine_mg"
+        assert lines[0] == "timestamp\tdrink\tcaffeine_mg\tsugar_g"
         # Check data row
-        assert lines[1] == "2025-12-27T08:00:00\tespresso\t63"
+        assert lines[1] == "2025-12-27T08:00:00\tbaly\t60\t27"
 
 
 def test_append_drink_appends_without_header(tmp_path: Path) -> None:
@@ -54,17 +54,17 @@ def test_append_drink_appends_without_header(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        append_drink("2025-12-27T08:00:00", "espresso", 63)
-        append_drink("2025-12-27T09:00:00", "coffee", 95)
+        append_drink("2025-12-27T08:00:00", "baly", 60, 27)
+        append_drink("2025-12-27T09:00:00", "red bull", 80, 27)
 
         content = test_file.read_text()
         lines = content.strip().split("\n")
 
         # Should have exactly 3 lines: header + 2 data rows
         assert len(lines) == 3
-        assert lines[0] == "timestamp\tdrink\tcaffeine_mg"
-        assert lines[1] == "2025-12-27T08:00:00\tespresso\t63"
-        assert lines[2] == "2025-12-27T09:00:00\tcoffee\t95"
+        assert lines[0] == "timestamp\tdrink\tcaffeine_mg\tsugar_g"
+        assert lines[1] == "2025-12-27T08:00:00\tbaly\t60\t27"
+        assert lines[2] == "2025-12-27T09:00:00\tred bull\t80\t27"
 
 
 def test_get_today_entries_returns_todays_drinks(tmp_path: Path) -> None:
@@ -76,15 +76,15 @@ def test_get_today_entries_returns_todays_drinks(tmp_path: Path) -> None:
     yesterday = "2020-01-01"  # Definitely not today
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        append_drink(f"{today}T08:00:00", "espresso", 63)
-        append_drink(f"{yesterday}T08:00:00", "old_coffee", 95)
-        append_drink(f"{today}T10:00:00", "latte", 75)
+        append_drink(f"{today}T08:00:00", "baly", 60, 27)
+        append_drink(f"{yesterday}T08:00:00", "old_drink", 95, 30)
+        append_drink(f"{today}T10:00:00", "red bull", 80, 27)
 
         entries = get_today_entries()
 
         assert len(entries) == 2
-        assert entries[0] == (f"{today}T08:00:00", "espresso", 63)
-        assert entries[1] == (f"{today}T10:00:00", "latte", 75)
+        assert entries[0] == (f"{today}T08:00:00", "baly", 60, 27)
+        assert entries[1] == (f"{today}T10:00:00", "red bull", 80, 27)
 
 
 def test_get_today_entries_empty_file(tmp_path: Path) -> None:
@@ -98,28 +98,30 @@ def test_get_today_entries_empty_file(tmp_path: Path) -> None:
 
 
 def test_get_today_total_calculates_sum(tmp_path: Path) -> None:
-    """Test that get_today_total sums today's caffeine."""
+    """Test that get_today_total sums today's caffeine and sugar."""
     test_dir = tmp_path / "data"
     test_file = test_dir / "drinks.tsv"
 
     today = datetime.now().date().isoformat()
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        append_drink(f"{today}T08:00:00", "espresso", 63)
-        append_drink(f"{today}T10:00:00", "coffee", 95)
+        append_drink(f"{today}T08:00:00", "baly", 60, 27)
+        append_drink(f"{today}T10:00:00", "red bull", 80, 27)
 
-        total = get_today_total()
-        assert total == 158  # 63 + 95
+        caffeine_total, sugar_total = get_today_total()
+        assert caffeine_total == 140  # 60 + 80
+        assert sugar_total == 54  # 27 + 27
 
 
 def test_get_today_total_empty_returns_zero(tmp_path: Path) -> None:
-    """Test that get_today_total returns 0 for no entries."""
+    """Test that get_today_total returns (0, 0) for no entries."""
     test_dir = tmp_path / "data"
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        total = get_today_total()
-        assert total == 0
+        caffeine_total, sugar_total = get_today_total()
+        assert caffeine_total == 0
+        assert sugar_total == 0
 
 
 def test_get_today_entries_skips_corrupted_rows(tmp_path: Path) -> None:
@@ -178,7 +180,7 @@ def test_get_yesterday_entries_empty(tmp_path: Path) -> None:
 
 
 def test_get_yesterday_total(tmp_path: Path) -> None:
-    """Test yesterday's total caffeine."""
+    """Test yesterday's total caffeine and sugar."""
     test_dir = tmp_path / "data"
     test_file = test_dir / "drinks.tsv"
     test_dir.mkdir(parents=True)
@@ -186,12 +188,15 @@ def test_get_yesterday_total(tmp_path: Path) -> None:
     yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
 
     test_file.write_text(
-        f"timestamp\tdrink\tcaffeine_mg\n" f"{yesterday}T08:00:00\tespresso\t63\n" f"{yesterday}T10:00:00\tcoffee\t95\n"
+        f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n"
+        f"{yesterday}T08:00:00\tbaly\t60\t27\n"
+        f"{yesterday}T10:00:00\tred bull\t80\t27\n"
     )
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        total = get_yesterday_total()
-        assert total == 158  # 63 + 95
+        caffeine_total, sugar_total = get_yesterday_total()
+        assert caffeine_total == 140  # 60 + 80
+        assert sugar_total == 54  # 27 + 27
 
 
 def test_get_yesterday_total_by_time(tmp_path: Path) -> None:
@@ -203,17 +208,21 @@ def test_get_yesterday_total_by_time(tmp_path: Path) -> None:
     yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
 
     test_file.write_text(
-        f"timestamp\tdrink\tcaffeine_mg\n" f"{yesterday}T08:00:00\tespresso\t63\n" f"{yesterday}T14:00:00\tcoffee\t95\n"
+        f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n"
+        f"{yesterday}T08:00:00\tbaly\t60\t27\n"
+        f"{yesterday}T14:00:00\tred bull\t80\t27\n"
     )
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
         # Before 10:00 should only include 8am drink
-        total = get_yesterday_total_by_time(10, 0)
-        assert total == 63
+        caffeine_total, sugar_total = get_yesterday_total_by_time(10, 0)
+        assert caffeine_total == 60
+        assert sugar_total == 27
 
         # After 15:00 should include both
-        total = get_yesterday_total_by_time(15, 0)
-        assert total == 158
+        caffeine_total, sugar_total = get_yesterday_total_by_time(15, 0)
+        assert caffeine_total == 140
+        assert sugar_total == 54
 
 
 def test_get_yesterday_total_by_time_empty(tmp_path: Path) -> None:
@@ -222,8 +231,9 @@ def test_get_yesterday_total_by_time_empty(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        total = get_yesterday_total_by_time(12, 0)
-        assert total == 0
+        caffeine_total, sugar_total = get_yesterday_total_by_time(12, 0)
+        assert caffeine_total == 0
+        assert sugar_total == 0
 
 
 # ============================================================================
@@ -351,13 +361,15 @@ def test_get_daily_totals_single_day(tmp_path: Path) -> None:
     today = datetime.now().date().isoformat()
 
     test_file.write_text(
-        f"timestamp\tdrink\tcaffeine_mg\n" f"{today}T08:00:00\tespresso\t63\n" f"{today}T10:00:00\tcoffee\t95\n"
+        f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n"
+        f"{today}T08:00:00\tbaly\t60\t27\n"
+        f"{today}T10:00:00\tred bull\t80\t27\n"
     )
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
         totals = get_daily_totals(14)
         assert len(totals) == 1
-        assert totals[0] == (today, 158)
+        assert totals[0] == (today, 140, 54)  # (date, caffeine, sugar)
 
 
 def test_get_daily_totals_includes_zeros_for_gaps(tmp_path: Path) -> None:

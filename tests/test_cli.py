@@ -52,7 +52,7 @@ def test_status_command_help() -> None:
     """Test that status command has help text."""
     result = runner.invoke(app, ["status", "--help"])
     assert result.exit_code == EXIT_SUCCESS
-    assert "today's caffeine intake" in result.output
+    assert "caffeine and sugar intake" in result.output
 
 
 def test_graph_command_help() -> None:
@@ -66,9 +66,10 @@ def test_drinks_command_lists_drinks() -> None:
     """Test that drinks command lists known drinks."""
     result = runner.invoke(app, ["drinks"])
     assert result.exit_code == EXIT_SUCCESS
-    assert "espresso" in result.output
-    assert "coffee" in result.output
-    assert "63mg" in result.output  # espresso caffeine
+    assert "baly" in result.output
+    assert "red bull" in result.output
+    assert "60mg" in result.output  # baly caffeine
+    assert "27g sugar" in result.output  # baly sugar
     assert "drinks available" in result.output
 
 
@@ -85,12 +86,13 @@ def test_log_command_known_drink(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        result = runner.invoke(app, ["log", "espresso"])
+        result = runner.invoke(app, ["log", "baly"])
 
         assert result.exit_code == EXIT_SUCCESS
         assert "Logged:" in result.output
-        assert "espresso" in result.output
-        assert "63mg" in result.output
+        assert "baly" in result.output
+        assert "60mg" in result.output
+        assert "27g sugar" in result.output
         assert "Today's total:" in result.output
 
 
@@ -112,12 +114,13 @@ def test_log_command_creates_file(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        runner.invoke(app, ["log", "coffee"])
+        runner.invoke(app, ["log", "red bull"])
 
         assert test_file.exists()
         content = test_file.read_text()
-        assert "coffee" in content
-        assert "95" in content
+        assert "red bull" in content
+        assert "80" in content
+        assert "27" in content  # sugar
 
 
 def test_log_command_running_total(tmp_path: Path) -> None:
@@ -126,11 +129,13 @@ def test_log_command_running_total(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        result1 = runner.invoke(app, ["log", "espresso"])
-        result2 = runner.invoke(app, ["log", "coffee"])
+        result1 = runner.invoke(app, ["log", "baly"])
+        result2 = runner.invoke(app, ["log", "red bull"])
 
-        assert "63mg" in result1.output
-        assert "158mg" in result2.output  # 63 + 95
+        assert "60mg" in result1.output
+        assert "27g sugar" in result1.output
+        assert "140mg" in result2.output  # 60 + 80
+        assert "54g sugar" in result2.output  # 27 + 27
 
 
 def test_status_command_runs() -> None:
@@ -195,10 +200,10 @@ def test_log_known_drink_with_mg_override(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        result = runner.invoke(app, ["log", "espresso", "--mg", "100"])
+        result = runner.invoke(app, ["log", "baly", "--mg", "100"])
 
         assert result.exit_code == EXIT_SUCCESS
-        assert "100mg" in result.output  # Override, not 63mg
+        assert "100mg" in result.output  # Override, not 60mg
 
 
 def test_log_negative_mg_rejected(tmp_path: Path) -> None:
@@ -229,15 +234,16 @@ def test_status_with_drinks(tmp_path: Path) -> None:
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
         # Log some drinks first
-        runner.invoke(app, ["log", "espresso"])
-        runner.invoke(app, ["log", "coffee"])
+        runner.invoke(app, ["log", "baly"])
+        runner.invoke(app, ["log", "red bull"])
 
         result = runner.invoke(app, ["status"])
         assert result.exit_code == EXIT_SUCCESS
         assert "Today:" in result.output
-        assert "158mg" in result.output  # Verify exact total (63 + 95)
-        assert "espresso" in result.output
-        assert "coffee" in result.output
+        assert "140mg" in result.output  # Verify exact total (60 + 80)
+        assert "54g" in result.output  # Verify sugar total (27 + 27)
+        assert "baly" in result.output
+        assert "red bull" in result.output
 
 
 def test_status_empty_day(tmp_path: Path) -> None:
@@ -259,12 +265,12 @@ def test_status_shows_time_format(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        runner.invoke(app, ["log", "espresso"])
+        runner.invoke(app, ["log", "baly"])
 
         result = runner.invoke(app, ["status"])
         assert result.exit_code == EXIT_SUCCESS
-        assert "espresso" in result.output
-        assert "63mg" in result.output
+        assert "baly" in result.output
+        assert "60mg" in result.output
         # Verify time is in HH:MM format, not full ISO (should NOT contain date portion)
         today = datetime.now().date().isoformat()
         assert today not in result.output  # Date should not appear in drink list
@@ -278,17 +284,17 @@ def test_status_with_yesterday_data(tmp_path: Path) -> None:
 
     yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
 
-    # Setup yesterday data manually
-    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\n" f"{yesterday}T08:00:00\tespresso\t63\n")
+    # Setup yesterday data manually (with sugar column)
+    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n" f"{yesterday}T08:00:00\tbaly\t60\t27\n")
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
         # Log today's drink (same as yesterday)
-        runner.invoke(app, ["log", "espresso"])
+        runner.invoke(app, ["log", "baly"])
 
         result = runner.invoke(app, ["status"])
         assert result.exit_code == EXIT_SUCCESS
         assert "vs yesterday:" in result.output
-        assert "0mg" in result.output  # Same intake: 63mg today vs 63mg yesterday
+        assert "0mg" in result.output  # Same intake: 60mg today vs 60mg yesterday
 
 
 def test_status_without_yesterday_data(tmp_path: Path) -> None:
@@ -297,7 +303,7 @@ def test_status_without_yesterday_data(tmp_path: Path) -> None:
     test_file = test_dir / "drinks.tsv"
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        runner.invoke(app, ["log", "espresso"])
+        runner.invoke(app, ["log", "baly"])
 
         result = runner.invoke(app, ["status"])
         assert result.exit_code == EXIT_SUCCESS
@@ -312,10 +318,10 @@ def test_status_shows_same_time_comparison(tmp_path: Path) -> None:
 
     yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
 
-    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\n" f"{yesterday}T08:00:00\tespresso\t63\n")
+    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n" f"{yesterday}T08:00:00\tbaly\t60\t27\n")
 
     with patch.object(data_module, "DATA_DIR", test_dir), patch.object(data_module, "DRINKS_FILE", test_file):
-        runner.invoke(app, ["log", "espresso"])
+        runner.invoke(app, ["log", "baly"])
 
         result = runner.invoke(app, ["status"])
         assert result.exit_code == EXIT_SUCCESS
@@ -338,7 +344,9 @@ def test_graph_with_data(tmp_path: Path) -> None:
     today = datetime.now().date().isoformat()
 
     test_file.write_text(
-        f"timestamp\tdrink\tcaffeine_mg\n" f"{yesterday}T08:00:00\tespresso\t63\n" f"{today}T08:00:00\tcoffee\t95\n"
+        f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n"
+        f"{yesterday}T08:00:00\tbaly\t60\t27\n"
+        f"{today}T08:00:00\tred bull\t80\t27\n"
     )
 
     with (
@@ -364,7 +372,7 @@ def test_graph_with_config(tmp_path: Path) -> None:
     config_file.write_text("[display]\ngraph_days = 30\n")
 
     today = datetime.now().date().isoformat()
-    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\n" f"{today}T08:00:00\tespresso\t63\n")
+    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n" f"{today}T08:00:00\tbaly\t60\t27\n")
 
     with (
         patch.object(data_module, "DATA_DIR", test_dir),
@@ -387,7 +395,7 @@ def test_graph_default_days_no_config(tmp_path: Path) -> None:
     test_dir.mkdir(parents=True)
 
     today = datetime.now().date().isoformat()
-    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\n" f"{today}T08:00:00\tespresso\t63\n")
+    test_file.write_text(f"timestamp\tdrink\tcaffeine_mg\tsugar_g\n" f"{today}T08:00:00\tbaly\t60\t27\n")
 
     # Note: config_file doesn't exist, should use default 14 days
     with (
