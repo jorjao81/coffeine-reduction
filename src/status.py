@@ -128,31 +128,26 @@ def get_history_data() -> list[tuple[str, int, int]]:
     return data.get_daily_totals(STATUS_HISTORY_DAYS)
 
 
-def calculate_daily_blood_concentration(
+def calculate_hourly_blood_concentration(
     days: int = STATUS_HISTORY_DAYS,
-) -> list[tuple[str, float]]:
+) -> list[tuple[datetime, float]]:
     """
-    Calculate blood caffeine concentration at end of each day.
+    Calculate blood caffeine concentration at each hour over the specified days.
 
     Uses pharmacokinetic decay model with configurable half-life.
-    For each target day, calculates remaining caffeine at 23:59 from all
-    prior consumption.
+    For each hour, calculates remaining caffeine from all prior consumption.
 
     Args:
         days: Number of days to calculate concentration for.
 
     Returns:
-        List of (date_str, concentration_mg) tuples sorted by date ascending.
+        List of (datetime, concentration_mg) tuples sorted chronologically.
     """
     from datetime import timedelta
 
     all_entries = data.get_all_entries()
     if not all_entries:
         return []
-
-    # Build target dates (last N days)
-    today = datetime.now().date()
-    target_dates = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
 
     # Parse all entries into (datetime, caffeine_mg) for easier calculation
     parsed_entries: list[tuple[datetime, int]] = []
@@ -163,10 +158,26 @@ def calculate_daily_blood_concentration(
         except ValueError:
             continue
 
-    results: list[tuple[str, float]] = []
-    for date_str in target_dates:
-        # Calculate concentration at end of this day (23:59:59)
-        target_dt = datetime.fromisoformat(f"{date_str}T23:59:59")
+    if not parsed_entries:
+        return []
+
+    # Build hourly timestamps for the last N days
+    now = datetime.now()
+    # For today, only go up to current hour
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    start_date = now.date() - timedelta(days=days - 1)
+    start_dt = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0)
+
+    # Generate hourly timestamps
+    hourly_timestamps: list[datetime] = []
+    current_dt = start_dt
+    while current_dt <= current_hour:
+        hourly_timestamps.append(current_dt)
+        current_dt += timedelta(hours=1)
+
+    # Calculate concentration at each hour
+    results: list[tuple[datetime, float]] = []
+    for target_dt in hourly_timestamps:
         concentration = 0.0
 
         for entry_dt, mg in parsed_entries:
@@ -177,9 +188,9 @@ def calculate_daily_blood_concentration(
                 remaining = mg * (0.5 ** (hours_elapsed / CAFFEINE_HALF_LIFE_HOURS))
                 concentration += remaining
 
-        results.append((date_str, concentration))
+        results.append((target_dt, concentration))
 
-    # Trim leading zeros like get_daily_totals does
+    # Trim leading zeros
     first_nonzero_idx = None
     for i, (_, conc) in enumerate(results):
         if conc > CONCENTRATION_THRESHOLD:
@@ -194,16 +205,16 @@ def calculate_daily_blood_concentration(
 
 def render_braille_graph(
     daily_totals: list[tuple[str, int, int]],
-    blood_concentration: list[tuple[str, float]] | None = None,
+    hourly_concentration: list[tuple[datetime, float]] | None = None,
     width: int = 50,
     height: int = 8,
 ) -> str:
     """
-    Render a braille line graph of caffeine intake and blood concentration.
+    Render a braille line graph of caffeine intake and hourly blood concentration.
 
     Args:
         daily_totals: List of (date_str, caffeine_mg, sugar_g) tuples.
-        blood_concentration: Optional list of (date_str, concentration_mg) tuples.
+        hourly_concentration: Optional list of (datetime, concentration_mg) tuples.
         width: Width of the graph in characters.
         height: Height of the graph in characters.
 
@@ -216,22 +227,38 @@ def render_braille_graph(
 
     caffeine_values = [d[1] for d in daily_totals]
     dates = [d[0][5:] for d in daily_totals]  # MM-DD format
-    x_values = list(range(len(caffeine_values)))
 
-    # Build blood concentration values aligned to the same dates
-    concentration_values: list[float] = []
-    if blood_concentration:
-        conc_dict = {d[0]: d[1] for d in blood_concentration}
-        concentration_values = [conc_dict.get(d[0], 0.0) for d in daily_totals]
+    # Calculate the time span in hours for the x-axis
+    # Use first date at 00:00 as origin, last date at 23:59 as end
+    first_date = datetime.fromisoformat(f"{daily_totals[0][0]}T00:00:00")
+    last_date = datetime.fromisoformat(f"{daily_totals[-1][0]}T23:59:59")
+    total_hours = (last_date - first_date).total_seconds() / 3600
+
+    # Map daily totals to x positions (center of each day = noon)
+    daily_x_values: list[float] = []
+    for date_str, _, _ in daily_totals:
+        day_noon = datetime.fromisoformat(f"{date_str}T12:00:00")
+        hours_from_start = (day_noon - first_date).total_seconds() / 3600
+        daily_x_values.append(hours_from_start)
+
+    # Map hourly concentration to x positions
+    concentration_x_values: list[float] = []
+    concentration_y_values: list[float] = []
+    if hourly_concentration:
+        for dt, conc in hourly_concentration:
+            hours_from_start = (dt - first_date).total_seconds() / 3600
+            if 0 <= hours_from_start <= total_hours:
+                concentration_x_values.append(hours_from_start)
+                concentration_y_values.append(conc)
 
     # Create the figure
     fig = plotille.Figure()
     fig.width = width
     fig.height = height
-    fig.set_x_limits(min_=0, max_=len(caffeine_values) - 1)
+    fig.set_x_limits(min_=0, max_=total_hours)
 
     # Set y limits considering both series
-    all_values = caffeine_values + concentration_values
+    all_values = caffeine_values + concentration_y_values
     max_val = max(all_values) if all_values else 0
     min_val = min(all_values) if all_values else 0
     padding = (max_val - min_val) * 0.1 if max_val != min_val else 10
@@ -241,11 +268,11 @@ def render_braille_graph(
     fig.x_label = f"{dates[0]} → {dates[-1]}"
     fig.y_label = "mg"
 
-    # Plot caffeine intake line
-    fig.plot(x_values, caffeine_values, lc="cyan", label="Intake")
+    # Plot caffeine intake line (daily totals)
+    fig.plot(daily_x_values, caffeine_values, lc="cyan", label="Intake")
 
-    # Plot blood concentration line if available
-    if concentration_values:
-        fig.plot(x_values, concentration_values, lc="yellow", label="Blood")
+    # Plot blood concentration line if available (hourly)
+    if concentration_x_values:
+        fig.plot(concentration_x_values, concentration_y_values, lc="yellow", label="Blood")
 
     return str(fig.show(legend=True))  # pyright: ignore[reportUnknownArgumentType]

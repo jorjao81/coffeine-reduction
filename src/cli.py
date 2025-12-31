@@ -141,8 +141,8 @@ def status() -> None:
                 f"  [dim]{formatted_date}[/dim]  [cyan]{caffeine_mg:>4}mg[/cyan]  [magenta]{sugar_g:>3}g[/magenta]"
             )
 
-        # Calculate blood concentration
-        blood_conc = status_module.calculate_daily_blood_concentration()
+        # Calculate hourly blood concentration
+        blood_conc = status_module.calculate_hourly_blood_concentration()
 
         # Show braille line graph with both intake and blood concentration
         console.print()
