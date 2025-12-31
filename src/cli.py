@@ -141,10 +141,13 @@ def status() -> None:
                 f"  [dim]{formatted_date}[/dim]  [cyan]{caffeine_mg:>4}mg[/cyan]  [magenta]{sugar_g:>3}g[/magenta]"
             )
 
-        # Show braille line graph
+        # Calculate blood concentration
+        blood_conc = status_module.calculate_daily_blood_concentration()
+
+        # Show braille line graph with both intake and blood concentration
         console.print()
-        console.print("[bold]Caffeine trend:[/bold]")
-        graph_output = status_module.render_braille_graph(history)
+        console.print("[bold]Caffeine trend ([cyan]intake[/cyan] / [yellow]blood[/yellow]):[/bold]")
+        graph_output = status_module.render_braille_graph(history, blood_conc)
         if graph_output:
             print(graph_output)  # Use print() to avoid Rich markup conflicts
 
