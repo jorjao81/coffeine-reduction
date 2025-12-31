@@ -124,11 +124,29 @@ def status() -> None:
 
     if not entries:
         console.print("[dim]No drinks logged today[/dim]")
-        return
+    else:
+        for timestamp, drink, mg, sg in entries:
+            time_str = status_module.format_time(timestamp)
+            console.print(f"  [dim]{time_str}[/dim]  {drink:<20} [cyan]{mg}mg[/cyan]  [magenta]{sg}g sugar[/magenta]")
 
-    for timestamp, drink, mg, sg in entries:
-        time_str = status_module.format_time(timestamp)
-        console.print(f"  [dim]{time_str}[/dim]  {drink:<20} [cyan]{mg}mg[/cyan]  [magenta]{sg}g sugar[/magenta]")
+    # Show last 10 days history
+    history = status_module.get_history_data()
+    if history:
+        console.print()
+        console.print("[bold]Last 10 days:[/bold]")
+        for date_str, caffeine_mg, sugar_g in history:
+            # Format date as MM-DD
+            formatted_date = date_str[5:]  # "2025-12-27" -> "12-27"
+            console.print(
+                f"  [dim]{formatted_date}[/dim]  [cyan]{caffeine_mg:>4}mg[/cyan]  [magenta]{sugar_g:>3}g[/magenta]"
+            )
+
+        # Show braille line graph
+        console.print()
+        console.print("[bold]Caffeine trend:[/bold]")
+        graph_output = status_module.render_braille_graph(history)
+        if graph_output:
+            print(graph_output)  # Use print() to avoid Rich markup conflicts
 
 
 @app.command()
