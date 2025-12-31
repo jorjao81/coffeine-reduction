@@ -275,4 +275,14 @@ def render_braille_graph(
     if concentration_x_values:
         fig.plot(concentration_x_values, concentration_y_values, lc="yellow", label="Blood")
 
-    return str(fig.show(legend=True))  # pyright: ignore[reportUnknownArgumentType]
+    output = str(fig.show(legend=True))  # pyright: ignore[reportUnknownArgumentType]
+
+    # Round y-axis labels for cleaner display
+    import re
+
+    def round_match(m: re.Match[str]) -> str:
+        return str(round(float(m.group(0))))
+
+    # Match floating point numbers at the start of lines (y-axis labels)
+    output = re.sub(r"^[\d.]+(?=\s*\|)", round_match, output, flags=re.MULTILINE)
+    return output
