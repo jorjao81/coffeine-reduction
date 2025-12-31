@@ -206,7 +206,7 @@ def calculate_hourly_blood_concentration(
 def render_braille_graph(
     daily_totals: list[tuple[str, int, int]],
     hourly_concentration: list[tuple[datetime, float]] | None = None,
-    width: int = 50,
+    width: int = 100,
     height: int = 8,
 ) -> str:
     """
@@ -286,3 +286,122 @@ def render_braille_graph(
     # Match floating point numbers at the start of lines (y-axis labels)
     output = re.sub(r"^[\d.]+(?=\s*\|)", round_match, output, flags=re.MULTILINE)
     return output
+
+
+def _calculate_concentration_at_time(target_dt: datetime, parsed_entries: list[tuple[datetime, int]]) -> float:
+    """Calculate blood caffeine concentration at a specific time."""
+    concentration = 0.0
+    for entry_dt, mg in parsed_entries:
+        if entry_dt <= target_dt:
+            hours_elapsed = (target_dt - entry_dt).total_seconds() / 3600
+            remaining = mg * (0.5 ** (hours_elapsed / CAFFEINE_HALF_LIFE_HOURS))
+            concentration += remaining
+    return concentration
+
+
+def _parse_entries_to_datetime(
+    entries: list[tuple[str, str, int, int]],
+) -> list[tuple[datetime, int]]:
+    """Parse entry timestamps to datetime objects."""
+    parsed: list[tuple[datetime, int]] = []
+    for timestamp, _, mg, _ in entries:
+        try:
+            parsed.append((datetime.fromisoformat(timestamp), mg))
+        except ValueError:
+            continue
+    return parsed
+
+
+def render_24h_graph(
+    today_entries: list[tuple[str, str, int, int]],
+    width: int = 100,
+    height: int = 6,
+) -> str:
+    """
+    Render a 24-hour blood concentration graph with drink markers.
+
+    Args:
+        today_entries: List of (timestamp, drink, caffeine_mg, sugar_g) tuples from today.
+        width: Width of the graph in characters.
+        height: Height of the graph in characters.
+
+    Returns:
+        String containing the braille graph with drink markers.
+    """
+    import re
+    from datetime import timedelta
+
+    all_entries = data.get_all_entries()
+    if not all_entries:
+        return ""
+
+    parsed_entries = _parse_entries_to_datetime(all_entries)
+    if not parsed_entries:
+        return ""
+
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Generate hourly concentration data
+    hourly_data = [
+        (hour, _calculate_concentration_at_time(today_start + timedelta(hours=hour), parsed_entries))
+        for hour in range(now.hour + 1)
+    ]
+
+    if len(hourly_data) < MIN_GRAPH_DATA_POINTS:
+        return ""
+
+    x_values = [h for h, _ in hourly_data]
+    y_values = [c for _, c in hourly_data]
+    hourly_dict = dict(hourly_data)
+
+    # Get drink times for markers
+    drink_times = [
+        (datetime.fromisoformat(ts).hour, mg, name) for ts, name, mg, _ in today_entries if _is_valid_timestamp(ts)
+    ]
+
+    # Create and configure figure
+    fig = plotille.Figure()
+    fig.width = width
+    fig.height = height
+    fig.set_x_limits(min_=0, max_=23)
+
+    max_val = max(y_values) if y_values else 0
+    min_val = min(y_values) if y_values else 0
+    padding = (max_val - min_val) * 0.1 if max_val != min_val else 10
+    fig.set_y_limits(min_=max(0, min_val - padding), max_=max_val + padding)
+    fig.x_label = "00:00 → now"
+    fig.y_label = "mg"
+
+    fig.plot(x_values, y_values, lc="yellow", label="Blood")
+
+    # Add drink markers
+    if drink_times:
+        marker_x = [h for h, _, _ in drink_times if h in hourly_dict]
+        marker_y = [hourly_dict[h] for h, _, _ in drink_times if h in hourly_dict]
+        if marker_x:
+            fig.scatter(marker_x, marker_y, lc="cyan", marker="x")
+
+    output = str(fig.show(legend=False))  # pyright: ignore[reportUnknownArgumentType]
+
+    # Round y-axis labels
+    def round_match(m: re.Match[str]) -> str:
+        return str(round(float(m.group(0))))
+
+    output = re.sub(r"^[\d.]+(?=\s*\|)", round_match, output, flags=re.MULTILINE)
+
+    # Add drink annotations
+    if drink_times:
+        drink_list = "  ".join([f"☕ {h:02d}:00 {name} ({mg}mg)" for h, mg, name in drink_times])
+        output += f"\n  {drink_list}"
+
+    return output
+
+
+def _is_valid_timestamp(ts: str) -> bool:
+    """Check if a timestamp string is valid ISO format."""
+    try:
+        datetime.fromisoformat(ts)
+        return True
+    except ValueError:
+        return False

@@ -90,7 +90,7 @@ def status() -> None:
     entries, caffeine_total, sugar_total = status_module.get_status_data()
 
     console.print(
-        f"[bold]Today:[/bold] [cyan]{caffeine_total}mg[/cyan] caffeine, " f"[magenta]{sugar_total}g[/magenta] sugar"
+        f"[bold]☕ Today:[/bold] [cyan]{caffeine_total}mg[/cyan] caffeine, " f"[magenta]{sugar_total}g[/magenta] sugar"
     )
 
     # Yesterday comparison (AC #1, #3)
@@ -99,11 +99,13 @@ def status() -> None:
         caffeine_diff, sugar_diff = yesterday_diff
         caffeine_str = status_module.format_comparison(caffeine_diff)
         sugar_str = status_module.format_comparison(sugar_diff, "g")
+        caffeine_icon = "↓" if caffeine_diff <= 0 else "↑"
+        sugar_icon = "↓" if sugar_diff <= 0 else "↑"
         caffeine_color = "green" if caffeine_diff <= 0 else "yellow"
         sugar_color = "green" if sugar_diff <= 0 else "yellow"
         console.print(
-            f"  [dim]vs yesterday:[/dim] [{caffeine_color}]{caffeine_str}[/{caffeine_color}] caffeine, "
-            f"[{sugar_color}]{sugar_str}[/{sugar_color}] sugar"
+            f"  [dim]vs yesterday:[/dim] [{caffeine_color}]{caffeine_icon} {caffeine_str}[/{caffeine_color}] caffeine, "
+            f"[{sugar_color}]{sugar_icon} {sugar_str}[/{sugar_color}] sugar"
         )
 
         # Same-time comparison (AC #2)
@@ -112,12 +114,14 @@ def status() -> None:
             caffeine_time_diff, sugar_time_diff = same_time_diff
             caffeine_time_str = status_module.format_comparison(caffeine_time_diff)
             sugar_time_str = status_module.format_comparison(sugar_time_diff, "g")
+            caffeine_time_icon = "↓" if caffeine_time_diff <= 0 else "↑"
+            sugar_time_icon = "↓" if sugar_time_diff <= 0 else "↑"
             caffeine_time_color = "green" if caffeine_time_diff <= 0 else "yellow"
             sugar_time_color = "green" if sugar_time_diff <= 0 else "yellow"
             console.print(
                 f"  [dim]vs yesterday at this time:[/dim] "
-                f"[{caffeine_time_color}]{caffeine_time_str}[/{caffeine_time_color}] caffeine, "
-                f"[{sugar_time_color}]{sugar_time_str}[/{sugar_time_color}] sugar"
+                f"[{caffeine_time_color}]{caffeine_time_icon} {caffeine_time_str}[/{caffeine_time_color}] caffeine, "
+                f"[{sugar_time_color}]{sugar_time_icon} {sugar_time_str}[/{sugar_time_color}] sugar"
             )
 
     console.print()
@@ -127,13 +131,22 @@ def status() -> None:
     else:
         for timestamp, drink, mg, sg in entries:
             time_str = status_module.format_time(timestamp)
-            console.print(f"  [dim]{time_str}[/dim]  {drink:<20} [cyan]{mg}mg[/cyan]  [magenta]{sg}g sugar[/magenta]")
+            console.print(f"  [dim]{time_str}[/dim]  ☕ {drink:<20} [cyan]{mg}mg[/cyan]  [magenta]{sg}g[/magenta]")
+
+    # Show 24-hour blood concentration graph first
+    console.print()
+    console.print("[bold]📊 Today's blood concentration:[/bold]")
+    graph_24h = status_module.render_24h_graph(entries)
+    if graph_24h:
+        print(graph_24h)
+    else:
+        console.print("[dim]  Not enough data for graph[/dim]")
 
     # Show last 10 days history
     history = status_module.get_history_data()
     if history:
         console.print()
-        console.print("[bold]Last 10 days:[/bold]")
+        console.print("[bold]📅 Last 10 days:[/bold]")
         for date_str, caffeine_mg, sugar_g in history:
             # Format date as MM-DD
             formatted_date = date_str[5:]  # "2025-12-27" -> "12-27"
@@ -146,7 +159,7 @@ def status() -> None:
 
         # Show braille line graph with both intake and blood concentration
         console.print()
-        console.print("[bold]Caffeine trend ([cyan]intake[/cyan] / [yellow]blood[/yellow]):[/bold]")
+        console.print("[bold]📈 Caffeine trend ([cyan]intake[/cyan] / [yellow]blood[/yellow]):[/bold]")
         graph_output = status_module.render_braille_graph(history, blood_conc)
         if graph_output:
             print(graph_output)  # Use print() to avoid Rich markup conflicts
