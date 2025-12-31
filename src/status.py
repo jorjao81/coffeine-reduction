@@ -312,22 +312,44 @@ def _parse_entries_to_datetime(
     return parsed
 
 
+def _get_24h_time_points(today_entries: list[tuple[str, str, int, int]], now: datetime) -> list[float]:
+    """Get time points for 24h graph including drink times for sharp spikes."""
+    time_points: set[float] = set()
+
+    # Add hourly points
+    for hour in range(now.hour + 1):
+        time_points.add(float(hour))
+
+    # Add drink times (as fractional hours) - before and after for sharp spikes
+    for ts, _, _, _ in today_entries:
+        if _is_valid_timestamp(ts):
+            dt = datetime.fromisoformat(ts)
+            if dt.date() == now.date():
+                fractional_hour = dt.hour + dt.minute / 60.0
+                time_points.add(max(0, fractional_hour - 0.017))  # ~1 min before
+                time_points.add(fractional_hour)
+
+    return sorted(time_points)
+
+
+def _get_drink_times(today_entries: list[tuple[str, str, int, int]], now: datetime) -> list[tuple[float, int, str]]:
+    """Extract drink times as (fractional_hour, mg, name) tuples."""
+    drink_times: list[tuple[float, int, str]] = []
+    for ts, name, mg, _ in today_entries:
+        if _is_valid_timestamp(ts):
+            dt = datetime.fromisoformat(ts)
+            if dt.date() == now.date():
+                fractional_hour = dt.hour + dt.minute / 60.0
+                drink_times.append((fractional_hour, mg, name))
+    return drink_times
+
+
 def render_24h_graph(
     today_entries: list[tuple[str, str, int, int]],
     width: int = 100,
     height: int = 6,
 ) -> str:
-    """
-    Render a 24-hour blood concentration graph with drink markers.
-
-    Args:
-        today_entries: List of (timestamp, drink, caffeine_mg, sugar_g) tuples from today.
-        width: Width of the graph in characters.
-        height: Height of the graph in characters.
-
-    Returns:
-        String containing the braille graph with drink markers.
-    """
+    """Render a 24-hour blood concentration graph with drink markers."""
     import re
     from datetime import timedelta
 
@@ -342,58 +364,48 @@ def render_24h_graph(
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Generate hourly concentration data
-    hourly_data = [
-        (hour, _calculate_concentration_at_time(today_start + timedelta(hours=hour), parsed_entries))
-        for hour in range(now.hour + 1)
+    # Build graph data with sharp spikes at drink times
+    sorted_times = _get_24h_time_points(today_entries, now)
+    graph_data = [
+        (t, _calculate_concentration_at_time(today_start + timedelta(hours=t), parsed_entries))
+        for t in sorted_times
+        if today_start + timedelta(hours=t) <= now
     ]
 
-    if len(hourly_data) < MIN_GRAPH_DATA_POINTS:
+    if len(graph_data) < MIN_GRAPH_DATA_POINTS:
         return ""
 
-    x_values = [h for h, _ in hourly_data]
-    y_values = [c for _, c in hourly_data]
-    hourly_dict = dict(hourly_data)
+    x_values = [t for t, _ in graph_data]
+    y_values = [c for _, c in graph_data]
+    conc_lookup = dict(graph_data)
+    drink_times = _get_drink_times(today_entries, now)
 
-    # Get drink times for markers
-    drink_times = [
-        (datetime.fromisoformat(ts).hour, mg, name) for ts, name, mg, _ in today_entries if _is_valid_timestamp(ts)
-    ]
-
-    # Create and configure figure
+    # Create figure
     fig = plotille.Figure()
     fig.width = width
     fig.height = height
-    fig.set_x_limits(min_=0, max_=23)
+    fig.set_x_limits(min_=0, max_=now.hour + 1)
 
-    max_val = max(y_values) if y_values else 0
-    min_val = min(y_values) if y_values else 0
+    max_val, min_val = (max(y_values), min(y_values)) if y_values else (0, 0)
     padding = (max_val - min_val) * 0.1 if max_val != min_val else 10
     fig.set_y_limits(min_=max(0, min_val - padding), max_=max_val + padding)
     fig.x_label = "00:00 → now"
     fig.y_label = "mg"
-
     fig.plot(x_values, y_values, lc="yellow", label="Blood")
 
     # Add drink markers
-    if drink_times:
-        marker_x = [h for h, _, _ in drink_times if h in hourly_dict]
-        marker_y = [hourly_dict[h] for h, _, _ in drink_times if h in hourly_dict]
-        if marker_x:
-            fig.scatter(marker_x, marker_y, lc="cyan", marker="x")
+    marker_x = [t for t, _, _ in drink_times if t in conc_lookup]
+    marker_y = [conc_lookup[t] for t, _, _ in drink_times if t in conc_lookup]
+    if marker_x:
+        fig.scatter(marker_x, marker_y, lc="cyan", marker="x")
 
     output = str(fig.show(legend=False))  # pyright: ignore[reportUnknownArgumentType]
-
-    # Round y-axis labels
-    def round_match(m: re.Match[str]) -> str:
-        return str(round(float(m.group(0))))
-
-    output = re.sub(r"^[\d.]+(?=\s*\|)", round_match, output, flags=re.MULTILINE)
+    output = re.sub(r"^[\d.]+(?=\s*\|)", lambda m: str(round(float(m.group(0)))), output, flags=re.MULTILINE)
 
     # Add drink annotations
     if drink_times:
-        drink_list = "  ".join([f"☕ {h:02d}:00 {name} ({mg}mg)" for h, mg, name in drink_times])
-        output += f"\n  {drink_list}"
+        annotations = [f"☕ {int(t):02d}:{int((t - int(t)) * 60):02d} {name} ({mg}mg)" for t, mg, name in drink_times]
+        output += f"\n  {'  '.join(annotations)}"
 
     return output
 
