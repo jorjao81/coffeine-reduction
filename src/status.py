@@ -320,26 +320,30 @@ def _get_24h_time_points(today_entries: list[tuple[str, str, int, int]], now: da
     for hour in range(now.hour + 1):
         time_points.add(float(hour))
 
-    # Add drink times (as fractional hours) - before and after for sharp spikes
+    # Add drink times - just before and just after for vertical spikes
+    # Use tiny epsilon (0.0003 hours = ~1 second) to create near-vertical lines
+    epsilon = 0.0003
     for ts, _, _, _ in today_entries:
         if _is_valid_timestamp(ts):
             dt = datetime.fromisoformat(ts)
             if dt.date() == now.date():
-                fractional_hour = dt.hour + dt.minute / 60.0
-                time_points.add(max(0, fractional_hour - 0.017))  # ~1 min before
-                time_points.add(fractional_hour)
+                fractional_hour = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+                time_points.add(max(0, fractional_hour - epsilon))  # just before (pre-drink)
+                time_points.add(fractional_hour + epsilon)  # just after (post-drink)
 
     return sorted(time_points)
 
 
 def _get_drink_times(today_entries: list[tuple[str, str, int, int]], now: datetime) -> list[tuple[float, int, str]]:
     """Extract drink times as (fractional_hour, mg, name) tuples."""
+    epsilon = 0.0003
     drink_times: list[tuple[float, int, str]] = []
     for ts, name, mg, _ in today_entries:
         if _is_valid_timestamp(ts):
             dt = datetime.fromisoformat(ts)
             if dt.date() == now.date():
-                fractional_hour = dt.hour + dt.minute / 60.0
+                # Use post-drink time (with epsilon) to match graph data points
+                fractional_hour = dt.hour + dt.minute / 60.0 + dt.second / 3600.0 + epsilon
                 drink_times.append((fractional_hour, mg, name))
     return drink_times
 
